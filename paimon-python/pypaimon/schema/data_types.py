@@ -23,6 +23,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 import pyarrow
+from pyarrow import types
 
 
 class AtomicInteger:
@@ -403,7 +404,7 @@ class PyarrowFieldParser:
                 return pyarrow.bool_()
             elif type_name == 'STRING':
                 return pyarrow.string()
-            elif type_name == 'BINARY':
+            elif type_name.startswith('BINARY'):
                 return pyarrow.binary()
             elif type_name == 'DATE':
                 return pyarrow.date32()
@@ -444,47 +445,48 @@ class PyarrowFieldParser:
 
     @staticmethod
     def to_paimon_type(pa_type: pyarrow.DataType, nullable: bool) -> DataType:
-        type_name = str(pa_type)
-        if type_name == "int8":
+        # Based on Arrow DataTypes Doc: https://arrow.apache.org/docs/python/api/datatypes.html
+        if types.is_int8(pa_type):
             type_name = 'TINYINT'
-        elif type_name == "int16":
+        elif types.is_int16(pa_type):
             type_name = 'SMALLINT'
-        elif type_name == "int32":
+        elif types.is_int32(pa_type):
             type_name = 'INT'
-        elif type_name == "int64":
+        elif types.is_int64(pa_type):
             type_name = 'BIGINT'
-        elif type_name.startswith('float'):
+        elif types.is_float32(pa_type):
             type_name = 'FLOAT'
-        elif type_name.startswith('double'):
+        elif types.is_float64(pa_type):
             type_name = 'DOUBLE'
-        elif type_name.startswith('bool'):
+        elif types.is_boolean(pa_type):
             type_name = 'BOOLEAN'
-        elif type_name.startswith('string'):
+        elif types.is_string(pa_type):
             type_name = 'STRING'
-        elif type_name.startswith('binary'):
-            type_name = 'BINARY'
-        elif type_name.startswith('date'):
+        elif types.is_fixed_size_binary(pa_type):
+            type_name = f'BINARY({pa_type.byte_width})'
+        elif types.is_binary(pa_type):
+            type_name = 'BYTES'
+        elif types.is_decimal(pa_type):
+            type_name = f'DECIMAL({pa_type.precision}, {pa_type.scale})'
+        elif types.is_date32(pa_type):
             type_name = 'DATE'
-        elif type_name.startswith('timestamp'):
-            type_name = 'TIMESTAMP'
-        elif type_name.startswith('decimal'):
-            match = re.match(r'decimal\((\d+),\s*(\d+)\)', type_name)
-            if match:
-                precision, scale = map(int, match.groups())
-                type_name = 'DECIMAL({},{})'.format(precision, scale)
-            else:
-                type_name = 'DECIMAL(38,18)'
-        elif type_name.startswith('list'):
+        elif types.is_time(pa_type):
+            precision_mapping = {'s': 0, 'ms': 3, 'us': 6, 'ns': 9}
+            type_name = f'TIME({precision_mapping[pa_type.unit]})'
+        elif types.is_timestamp(pa_type) and pa_type.tz is None:
+            precision_mapping = {'s': 0, 'ms': 3, 'us': 6, 'ns': 9}
+            type_name = f'TIMESTAMP({precision_mapping[pa_type.unit]})'
+        elif types.is_list(pa_type) or types.is_large_list(pa_type):
             pa_type: pyarrow.ListType
             element_type = PyarrowFieldParser.to_paimon_type(pa_type.value_type, nullable)
             return ArrayType(nullable, element_type)
-        elif type_name.startswith('map'):
+        elif types.is_map(pa_type):
             pa_type: pyarrow.MapType
             key_type = PyarrowFieldParser.to_paimon_type(pa_type.key_type, nullable)
             value_type = PyarrowFieldParser.to_paimon_type(pa_type.item_type, nullable)
             return MapType(nullable, key_type, value_type)
         else:
-            raise ValueError("Unknown type: {}".format(type_name))
+            raise ValueError("Unsupported type: {}".format(pa_type))
         return AtomicType(type_name, nullable)
 
     @staticmethod
