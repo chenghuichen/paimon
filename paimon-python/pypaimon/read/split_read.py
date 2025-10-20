@@ -19,13 +19,14 @@
 import os
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 
 from pypaimon.common.core_options import CoreOptions
 from pypaimon.common.predicate import Predicate
 from pypaimon.manifest.schema.data_file_meta import DataFileMeta
 from pypaimon.read.interval_partition import IntervalPartition, SortedRun
 from pypaimon.read.partition_info import PartitionInfo
+from pypaimon.read.push_down_utils import to_trimmed_predicate
 from pypaimon.read.reader.concat_batch_reader import ConcatBatchReader, ShardBatchReader, MergeAllBatchReader
 from pypaimon.read.reader.concat_record_reader import ConcatRecordReader
 from pypaimon.read.reader.data_file_batch_reader import DataFileBatchReader
@@ -54,13 +55,12 @@ NULL_FIELD_INDEX = -1
 class SplitRead(ABC):
     """Abstract base class for split reading operations."""
 
-    def __init__(self, table, predicate: Optional[Predicate], push_down_predicate,
-                 read_type: List[DataField], split: Split):
+    def __init__(self, table, predicate: Optional[Predicate], read_type: List[DataField], split: Split):
         from pypaimon.table.file_store_table import FileStoreTable
 
         self.table: FileStoreTable = table
         self.predicate = predicate
-        self.push_down_predicate = push_down_predicate
+        self.push_down_predicate = self._push_down_predicate()
         self.split = split
         self.value_arity = len(read_type)
 
@@ -99,6 +99,14 @@ class SplitRead(ABC):
         else:
             return DataFileBatchReader(format_reader, index_mapping, partition_info, None,
                                        self.table.table_schema.fields)
+
+    def _push_down_predicate(self) -> Any:
+        if self.predicate is None:
+            return None
+        elif self.table.is_primary_key_table:
+            return to_trimmed_predicate(self.predicate, self.table.field_names, self.table.primary_keys).to_arrow()
+        else:
+            return self.predicate.to_arrow()
 
     @abstractmethod
     def _get_all_data_fields(self):

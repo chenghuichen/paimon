@@ -20,11 +20,14 @@ import os
 import shutil
 import tempfile
 import unittest
+from typing import List
 
 import pyarrow as pa
 
 from pypaimon import CatalogFactory
 from pypaimon import Schema
+from pypaimon.common.predicate_builder import PredicateBuilder
+from pypaimon.read import push_down_utils
 from pypaimon.read.split import Split
 
 
@@ -74,9 +77,15 @@ class ReaderPredicateTest(unittest.TestCase):
 
     def test_partition_predicate(self):
         predicate_builder = self.table.new_read_builder().new_predicate_builder()
-        predicate = predicate_builder.equal('pt', 1003)
+        p1 = predicate_builder.between('pt', 1002, 1003)
+        p2 = predicate_builder.and_predicates([predicate_builder.equal('pt', 1003), predicate_builder.equal('a', 3)])
+        predicate = predicate_builder.and_predicates([p1, p2])
         read_builder = self.table.new_read_builder()
         read_builder.with_filter(predicate)
-        splits: list[Split] = read_builder.new_scan().plan().splits()
+        scan = read_builder.new_scan()
+        rough_files = scan.starting_scanner._read_manifest_files()
+        self.assertEqual(len(rough_files), 1)
+
+        splits: List[Split] = scan.plan().splits()
         self.assertEqual(len(splits), 1)
         self.assertEqual(splits[0].partition.to_dict().get("pt"), 1003)
