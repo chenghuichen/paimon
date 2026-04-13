@@ -995,8 +995,7 @@ public class JavaPyE2ETest {
     public void testJavaReadVariantTable() throws Exception {
         Identifier identifier = identifier("py_variant_test");
         FileStoreTable table = (FileStoreTable) catalog.getTable(identifier);
-        List<Split> splits =
-                new ArrayList<>(table.newSnapshotReader().read().dataSplits());
+        List<Split> splits = new ArrayList<>(table.newSnapshotReader().read().dataSplits());
         TableRead read = table.newRead();
         List<String> res =
                 getResult(read, splits, row -> internalRowToString(row, table.rowType()));
@@ -1019,13 +1018,14 @@ public class JavaPyE2ETest {
                             assertThat(row.isNullAt(2)).isTrue();
                         } else {
                             assertThat(row.isNullAt(2)).isFalse();
-                            org.apache.paimon.data.variant.Variant v =
-                                    row.getVariant(2);
+                            org.apache.paimon.data.variant.Variant v = row.getVariant(2);
                             assertThat(v).isNotNull();
                         }
                     });
         }
-        LOG.info("testJavaReadVariantTable: Java read {} VARIANT rows written by Python", res.size());
+        LOG.info(
+                "testJavaReadVariantTable: Java read {} VARIANT rows written by Python",
+                res.size());
     }
 
     /** Step 1: Write 5 base files for compact conflict test. */
