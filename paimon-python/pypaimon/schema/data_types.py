@@ -454,7 +454,7 @@ class DataTypeParser:
         )
 
 
-def _is_variant_struct(pa_type: pyarrow.StructType) -> bool:
+def is_variant_struct(pa_type: pyarrow.StructType) -> bool:
     """Return True if *pa_type* is the two-field BINARY struct used to encode VARIANT.
 
     Paimon Java stores VARIANT as a Parquet GROUP with exactly two non-nullable
@@ -624,7 +624,7 @@ class PyarrowFieldParser:
             key_type = PyarrowFieldParser.to_paimon_type(pa_type.key_type, nullable)
             value_type = PyarrowFieldParser.to_paimon_type(pa_type.item_type, nullable)
             return MapType(nullable, key_type, value_type)
-        elif types.is_struct(pa_type) and _is_variant_struct(pa_type):
+        elif types.is_struct(pa_type) and is_variant_struct(pa_type):
             # Recognise the VARIANT encoding: a struct with exactly two non-nullable
             # BINARY fields named 'value' and 'metadata'. Must be checked before the
             # generic struct branch to avoid misclassifying it as a ROW type.

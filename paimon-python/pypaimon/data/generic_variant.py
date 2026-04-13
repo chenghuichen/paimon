@@ -86,6 +86,7 @@ _EPOCH_DT_UTC = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 _EPOCH_DT_NTZ = datetime.datetime(1970, 1, 1)
 
 
+
 class Type(enum.Enum):
     """High-level variant value types (many-to-one from wire types)."""
     OBJECT = 'OBJECT'
@@ -102,6 +103,35 @@ class Type(enum.Enum):
     FLOAT = 'FLOAT'
     BINARY = 'BINARY'
     UUID = 'UUID'
+
+
+# Populate module-level lookup tables now that Type is defined.
+_PRIMITIVE_TYPE_MAP = {
+    _NULL: Type.NULL,
+    _TRUE: Type.BOOLEAN, _FALSE: Type.BOOLEAN,
+    _INT1: Type.LONG, _INT2: Type.LONG, _INT4: Type.LONG, _INT8: Type.LONG,
+    _DOUBLE: Type.DOUBLE,
+    _DECIMAL4: Type.DECIMAL, _DECIMAL8: Type.DECIMAL, _DECIMAL16: Type.DECIMAL,
+    _DATE: Type.DATE,
+    _TIMESTAMP: Type.TIMESTAMP,
+    _TIMESTAMP_NTZ: Type.TIMESTAMP_NTZ,
+    _FLOAT: Type.FLOAT,
+    _BINARY: Type.BINARY,
+    _LONG_STR: Type.STRING,
+    _UUID: Type.UUID,
+}
+_PRIMITIVE_FIXED_SIZES = {
+    _NULL: 1, _TRUE: 1, _FALSE: 1,
+    _INT1: 2, _INT2: 3, _INT4: 5, _INT8: 9,
+    _DOUBLE: 9, _FLOAT: 5, _DATE: 5,
+    _TIMESTAMP: 9, _TIMESTAMP_NTZ: 9,
+    _DECIMAL4: 6, _DECIMAL8: 10, _DECIMAL16: 18,
+    _UUID: 17,
+}
+_LONG_FAMILY_SIZES = {
+    _INT1: 1, _INT2: 2, _INT4: 4, _INT8: 8,
+    _DATE: 4, _TIMESTAMP: 8, _TIMESTAMP_NTZ: 8,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -171,21 +201,7 @@ def _get_type(value, pos):
     if basic_type == _ARRAY:
         return Type.ARRAY
     # PRIMITIVE
-    _MAP = {
-        _NULL: Type.NULL,
-        _TRUE: Type.BOOLEAN, _FALSE: Type.BOOLEAN,
-        _INT1: Type.LONG, _INT2: Type.LONG, _INT4: Type.LONG, _INT8: Type.LONG,
-        _DOUBLE: Type.DOUBLE,
-        _DECIMAL4: Type.DECIMAL, _DECIMAL8: Type.DECIMAL, _DECIMAL16: Type.DECIMAL,
-        _DATE: Type.DATE,
-        _TIMESTAMP: Type.TIMESTAMP,
-        _TIMESTAMP_NTZ: Type.TIMESTAMP_NTZ,
-        _FLOAT: Type.FLOAT,
-        _BINARY: Type.BINARY,
-        _LONG_STR: Type.STRING,
-        _UUID: Type.UUID,
-    }
-    t = _MAP.get(type_info)
+    t = _PRIMITIVE_TYPE_MAP.get(type_info)
     if t is None:
         raise ValueError(f'Unknown primitive variant type id: {type_info}')
     return t
@@ -215,16 +231,9 @@ def _value_size(value, pos):
             )
         )
     # PRIMITIVE
-    _FIXED = {
-        _NULL: 1, _TRUE: 1, _FALSE: 1,
-        _INT1: 2, _INT2: 3, _INT4: 5, _INT8: 9,
-        _DOUBLE: 9, _FLOAT: 5, _DATE: 5,
-        _TIMESTAMP: 9, _TIMESTAMP_NTZ: 9,
-        _DECIMAL4: 6, _DECIMAL8: 10, _DECIMAL16: 18,
-        _UUID: 17,
-    }
-    if type_info in _FIXED:
-        return _FIXED[type_info]
+    size = _PRIMITIVE_FIXED_SIZES.get(type_info)
+    if size is not None:
+        return size
     if type_info in (_BINARY, _LONG_STR):
         return 1 + _U32_SIZE + _read_unsigned(value, pos + 1, _U32_SIZE)
     raise ValueError(f'Unknown primitive type id: {type_info}')
@@ -478,6 +487,14 @@ class _GenericVariantBuilder:
         d = d.normalize()
         # Compute unscaled integer and scale
         sign, digits, exponent = d.as_tuple()
+        if exponent > 0:
+            # e.g. Decimal('1E+2') — the mantissa alone does not represent the true value.
+            # Callers should use append_double() for such values; _try_decimal_or_double
+            # handles this automatically when encoding from build_python().
+            raise ValueError(
+                f'append_decimal requires a non-positive exponent (got {d!r}); '
+                'use append_double() for Decimal values with positive exponents'
+            )
         unscaled = int(''.join(str(x) for x in digits))
         if sign:
             unscaled = -unscaled
@@ -802,9 +819,7 @@ class GenericVariant:
         type_info = (b >> 2) & 0x3F
         if (b & 0x3) != _PRIMITIVE:
             raise TypeError('Expected integer/date/timestamp variant')
-        sizes = {_INT1: 1, _INT2: 2, _INT4: 4, _INT8: 8,
-                 _DATE: 4, _TIMESTAMP: 8, _TIMESTAMP_NTZ: 8}
-        n = sizes.get(type_info)
+        n = _LONG_FAMILY_SIZES.get(type_info)
         if n is None:
             raise TypeError(f'Expected LONG-family variant, got type_info={type_info}')
         return _read_signed(self._value, self._pos + 1, n)

@@ -26,7 +26,7 @@ from pypaimon.common.external_path_provider import ExternalPathProvider
 from pypaimon.data.timestamp import Timestamp
 from pypaimon.manifest.schema.data_file_meta import DataFileMeta
 from pypaimon.manifest.schema.simple_stats import SimpleStats
-from pypaimon.schema.data_types import PyarrowFieldParser, _is_variant_struct
+from pypaimon.schema.data_types import PyarrowFieldParser, is_variant_struct
 from pypaimon.table.bucket_mode import BucketMode
 from pypaimon.table.row.generic_row import GenericRow
 
@@ -154,6 +154,15 @@ class DataWriter(ABC):
             self._write_data_to_file(data_to_write)
             self.pending_data = remaining_data
 
+    def _check_no_variant_for_format(self, schema: pa.Schema):
+        """Raise NotImplementedError if any VARIANT column is present for an unsupported format."""
+        if self.file_format in (CoreOptions.FILE_FORMAT_ORC, CoreOptions.FILE_FORMAT_AVRO):
+            for field in schema:
+                if pa.types.is_struct(field.type) and is_variant_struct(field.type):
+                    raise NotImplementedError(
+                        f"VARIANT type is not supported for {self.file_format} format"
+                    )
+
     def _write_data_to_file(self, data: pa.Table):
         if data.num_rows == 0:
             return
@@ -167,13 +176,7 @@ class DataWriter(ABC):
         else:
             external_path_str = None
 
-        # Reject VARIANT columns for ORC and Avro formats (matching Java behavior)
-        if self.file_format in (CoreOptions.FILE_FORMAT_ORC, CoreOptions.FILE_FORMAT_AVRO):
-            for field in data.schema:
-                if pa.types.is_struct(field.type) and _is_variant_struct(field.type):
-                    raise NotImplementedError(
-                        f"VARIANT type is not supported for {self.file_format} format"
-                    )
+        self._check_no_variant_for_format(data.schema)
 
         if self.file_format == CoreOptions.FILE_FORMAT_PARQUET:
             self.file_io.write_parquet(file_path, data, compression=self.compression, zstd_level=self.zstd_level)

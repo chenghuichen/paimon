@@ -143,8 +143,6 @@ class GenericRowDeserializer:
             return cls._parse_binary(bytes_data, base_offset, field_offset)
         elif type_name == 'BLOB':
             return cls._parse_blob(bytes_data, base_offset, field_offset)
-        elif type_name == 'VARIANT':
-            return cls._parse_variant(bytes_data, base_offset, field_offset)
         elif type_name.startswith('DECIMAL') or type_name.startswith('NUMERIC'):
             return cls._parse_decimal(bytes_data, base_offset, field_offset, data_type)
         elif type_name.startswith('TIMESTAMP'):
@@ -228,23 +226,6 @@ class GenericRowDeserializer:
             return bytes_data[field_offset:field_offset + length]
 
     @classmethod
-    def _parse_variant(cls, bytes_data: bytes, base_offset: int, field_offset: int) -> dict:
-        """Deserialize a VARIANT field from BinaryRow format.
-
-        Returns a dict ``{'value': bytes, 'metadata': bytes}`` that mirrors the
-        PyArrow struct representation used by :meth:`PyarrowFieldParser.from_paimon_type`.
-
-        Note: VARIANT is not a valid primary-key or partition-key type in Paimon, so
-        this path is only exercised when a VARIANT column appears in an internal
-        BinaryRow (e.g. a manifest entry), which is an unsupported configuration.
-        We read the raw binary payload and return a minimal metadata header so that
-        callers receive a structurally valid object rather than silently corrupt data.
-        """
-        raw = cls._parse_binary(bytes_data, base_offset, field_offset)
-        # Minimal valid metadata: version=1 (0x01), zero dictionary entries (0x00).
-        return {'value': raw, 'metadata': b'\x01\x00'}
-
-    @classmethod
     def _parse_blob(cls, bytes_data: bytes, base_offset: int, field_offset: int) -> BlobData:
         """Parse BLOB data from binary format and return a BlobData instance."""
         # BLOB uses the same binary format as regular binary data
@@ -321,20 +302,11 @@ class GenericRowSerializer:
 
             type_name = field.type.type.upper()
             if any(type_name.startswith(p) for p in ['CHAR', 'VARCHAR', 'STRING',
-                                                     'BINARY', 'VARBINARY', 'BYTES', 'BLOB',
-                                                     'VARIANT']):
+                                                     'BINARY', 'VARBINARY', 'BYTES', 'BLOB']):
                 if any(type_name.startswith(p) for p in ['CHAR', 'VARCHAR', 'STRING']):
                     value_bytes = str(value).encode('utf-8')
                 elif type_name == 'BLOB':
                     value_bytes = value.to_data()
-                elif type_name == 'VARIANT':
-                    # Serialize only the 'value' payload. VARIANT is not a valid
-                    # primary-key or partition-key type, so BinaryRow serialization
-                    # of VARIANT is only a safety net for unexpected code paths.
-                    if isinstance(value, dict):
-                        value_bytes = bytes(value.get('value', b''))
-                    else:
-                        value_bytes = bytes(value)
                 else:
                     value_bytes = bytes(value)
 

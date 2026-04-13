@@ -44,7 +44,7 @@ from pypaimon.schema.data_types import (
     DataTypeParser,
     PyarrowFieldParser,
     RowType,
-    _is_variant_struct,
+    is_variant_struct,
 )
 from pypaimon.table.row.generic_row import GenericRowDeserializer, GenericRowSerializer
 
@@ -162,47 +162,47 @@ class TestVariantFromPaimonType(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3. Arrow type mapping — Arrow → Paimon  (_is_variant_struct + to_paimon_type)
+# 3. Arrow type mapping — Arrow → Paimon  (is_variant_struct + to_paimon_type)
 # ---------------------------------------------------------------------------
 
 class TestVariantToPaimonType(unittest.TestCase):
 
-    def test_is_variant_struct_positive(self):
-        """_is_variant_struct recognises the canonical VARIANT struct."""
-        self.assertTrue(_is_variant_struct(_variant_arrow_type()))
+    def testis_variant_struct_positive(self):
+        """is_variant_struct recognises the canonical VARIANT struct."""
+        self.assertTrue(is_variant_struct(_variant_arrow_type()))
 
-    def test_is_variant_struct_wrong_names(self):
+    def testis_variant_struct_wrong_names(self):
         """A struct with wrong field names is NOT recognised as VARIANT."""
         st = pa.struct([
             pa.field('val', pa.binary(), nullable=False),
             pa.field('meta', pa.binary(), nullable=False),
         ])
-        self.assertFalse(_is_variant_struct(st))
+        self.assertFalse(is_variant_struct(st))
 
-    def test_is_variant_struct_nullable_fields(self):
+    def testis_variant_struct_nullable_fields(self):
         """A struct with nullable fields is NOT recognised as VARIANT."""
         st = pa.struct([
             pa.field('value', pa.binary(), nullable=True),
             pa.field('metadata', pa.binary(), nullable=False),
         ])
-        self.assertFalse(_is_variant_struct(st))
+        self.assertFalse(is_variant_struct(st))
 
-    def test_is_variant_struct_wrong_types(self):
+    def testis_variant_struct_wrong_types(self):
         """A struct with non-binary field types is NOT recognised as VARIANT."""
         st = pa.struct([
             pa.field('value', pa.string(), nullable=False),
             pa.field('metadata', pa.binary(), nullable=False),
         ])
-        self.assertFalse(_is_variant_struct(st))
+        self.assertFalse(is_variant_struct(st))
 
-    def test_is_variant_struct_extra_fields(self):
+    def testis_variant_struct_extra_fields(self):
         """A struct with more than 2 fields (shredded variant) is NOT auto-recognised."""
         st = pa.struct([
             pa.field('value', pa.binary(), nullable=False),
             pa.field('metadata', pa.binary(), nullable=False),
             pa.field('typed_value', pa.int64(), nullable=True),
         ])
-        self.assertFalse(_is_variant_struct(st))
+        self.assertFalse(is_variant_struct(st))
 
     def test_to_paimon_type_variant(self):
         """to_paimon_type converts the canonical VARIANT struct back to VARIANT."""

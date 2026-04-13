@@ -28,7 +28,6 @@ from pypaimon.common.options.core_options import CoreOptions
 from pypaimon.manifest.schema.data_file_meta import DataFileMeta
 from pypaimon.manifest.schema.simple_stats import SimpleStats
 from pypaimon.table.row.generic_row import GenericRow
-from pypaimon.schema.data_types import _is_variant_struct
 from pypaimon.write.writer.data_writer import DataWriter
 
 logger = logging.getLogger(__name__)
@@ -308,13 +307,7 @@ class DataBlobWriter(DataWriter):
         file_name = f"{CoreOptions.data_file_prefix(self.options)}{uuid.uuid4()}-0.{self.file_format}"
         file_path = self._generate_file_path(file_name)
 
-        # Reject VARIANT columns for ORC and Avro formats (matching Java behavior)
-        if self.file_format in (CoreOptions.FILE_FORMAT_ORC, CoreOptions.FILE_FORMAT_AVRO):
-            for field in data.schema:
-                if pa.types.is_struct(field.type) and _is_variant_struct(field.type):
-                    raise NotImplementedError(
-                        f"VARIANT type is not supported for {self.file_format} format"
-                    )
+        self._check_no_variant_for_format(data.schema)
 
         # Write file based on format
         if self.file_format == CoreOptions.FILE_FORMAT_PARQUET:
