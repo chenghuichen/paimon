@@ -504,12 +504,6 @@ class PyarrowFieldParser:
             elif type_name == 'BLOB':
                 return pyarrow.large_binary()
             elif type_name == 'VARIANT':
-                # VARIANT is stored in Parquet as a struct with two non-nullable BINARY fields,
-                # matching Paimon Java's ParquetSchemaConverter encoding:
-                #   required group <col> { required binary value; required binary metadata; }
-                # 'value'    holds the encoded variant payload (Parquet Variant binary spec).
-                # 'metadata' holds the key-dictionary for object field names.
-                # PyArrow reads this group transparently as pa.struct; no special reader needed.
                 return pyarrow.struct([
                     pyarrow.field('value', pyarrow.binary(), nullable=False),
                     pyarrow.field('metadata', pyarrow.binary(), nullable=False),
@@ -625,9 +619,6 @@ class PyarrowFieldParser:
             value_type = PyarrowFieldParser.to_paimon_type(pa_type.item_type, nullable)
             return MapType(nullable, key_type, value_type)
         elif types.is_struct(pa_type) and is_variant_struct(pa_type):
-            # Recognise the VARIANT encoding: a struct with exactly two non-nullable
-            # BINARY fields named 'value' and 'metadata'. Must be checked before the
-            # generic struct branch to avoid misclassifying it as a ROW type.
             return AtomicType('VARIANT', nullable)
         elif types.is_struct(pa_type):
             pa_type: pyarrow.StructType
