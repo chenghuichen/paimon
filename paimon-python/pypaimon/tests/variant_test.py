@@ -49,7 +49,6 @@ from pypaimon.schema.data_types import (
     RowType,
     is_variant_struct,
 )
-from pypaimon.table.row.generic_row import GenericRowDeserializer, GenericRowSerializer
 
 
 # ---------------------------------------------------------------------------

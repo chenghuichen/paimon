@@ -769,4 +769,3 @@ class JavaPyReadWriteTest(unittest.TestCase):
         table_write.close()
         table_commit.close()
         print(f"test_py_write_variant_table: wrote 4 VARIANT rows to {table_name}")
-
