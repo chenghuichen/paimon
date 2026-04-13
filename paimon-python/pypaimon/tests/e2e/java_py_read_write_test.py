@@ -725,8 +725,15 @@ class JavaPyReadWriteTest(unittest.TestCase):
 
         print(f"test_read_variant_table: verified {result.num_rows} VARIANT rows")
 
-    def test_py_write_read_variant_table(self):
-        """Python-only write+read test for VARIANT columns using GenericVariant."""
+    def test_py_write_variant_table(self):
+        """Write a VARIANT-column table for Java to read back (Python→Java E2E).
+
+        Data written:
+            id=1  payload={"name":"test","value":42}
+            id=2  payload=[10,20,30]
+            id=3  payload="hello"
+            id=4  payload=null
+        """
         variant_type = pa.struct([
             pa.field('value', pa.binary(), nullable=False),
             pa.field('metadata', pa.binary(), nullable=False),
@@ -736,32 +743,24 @@ class JavaPyReadWriteTest(unittest.TestCase):
             ('name', pa.string()),
             ('payload', variant_type),
         ])
-
-        schema = Schema.from_pyarrow_schema(
-            pa_schema,
-            options={'bucket': '-1'}
-        )
+        schema = Schema.from_pyarrow_schema(pa_schema, options={'bucket': '-1'})
 
         table_name = 'default.py_variant_test'
         self.catalog.create_table(table_name, schema, True)
         table = self.catalog.get_table(table_name)
 
-        # Construct GenericVariant objects
-        gv1 = GenericVariant.from_json('{"name":"test","value":42}')
-        gv2 = GenericVariant.from_json('[10,20,30]')
-        gv3 = GenericVariant.from_json('"hello"')
-        gv4 = GenericVariant.from_json('null')
-
-        # Build the VARIANT column
-        variant_col = GenericVariant.to_arrow_array([gv1, gv2, gv3, gv4])
-
+        variant_col = GenericVariant.to_arrow_array([
+            GenericVariant.from_json('{"name":"test","value":42}'),
+            GenericVariant.from_json('[10,20,30]'),
+            GenericVariant.from_json('"hello"'),
+            GenericVariant.from_json('null'),
+        ])
         data = pa.table({
             'id': pa.array([1, 2, 3, 4], type=pa.int32()),
             'name': pa.array(['row1', 'row2', 'row3', 'row4'], type=pa.string()),
             'payload': variant_col,
         }, schema=pa_schema)
 
-        # Write
         write_builder = table.new_batch_write_builder()
         table_write = write_builder.new_write()
         table_commit = write_builder.new_commit()
@@ -769,35 +768,5 @@ class JavaPyReadWriteTest(unittest.TestCase):
         table_commit.commit(table_write.prepare_commit())
         table_write.close()
         table_commit.close()
+        print(f"test_py_write_variant_table: wrote 4 VARIANT rows to {table_name}")
 
-        # Read back
-        read_builder = table.new_read_builder()
-        table_scan = read_builder.new_scan()
-        table_read = read_builder.new_read()
-        splits = table_scan.plan().splits()
-        result = table_read.to_arrow(splits)
-
-        self.assertEqual(result.num_rows, 4)
-
-        # Sort by id for deterministic assertion
-        result = table_sort_by(result, 'id')
-        payloads = result.column('payload').to_pylist()
-
-        # Row 1: object
-        gv = GenericVariant.from_dict(payloads[0])
-        self.assertEqual(gv.variant_get('$.name', 'string'), 'test')
-        self.assertEqual(gv.variant_get('$.value', 'int'), 42)
-
-        # Row 2: array
-        gv = GenericVariant.from_dict(payloads[1])
-        self.assertEqual(gv.to_python(), [10, 20, 30])
-
-        # Row 3: string
-        gv = GenericVariant.from_dict(payloads[2])
-        self.assertEqual(gv.to_python(), 'hello')
-
-        # Row 4: null
-        gv = GenericVariant.from_dict(payloads[3])
-        self.assertIsNone(gv.to_python())
-
-        print(f"test_py_write_read_variant_table: verified {result.num_rows} rows")

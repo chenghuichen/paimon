@@ -362,16 +362,26 @@ run_variant_test() {
     fi
 }
 
-run_py_variant_write_test() {
-    echo -e "${YELLOW}=== Running Python VARIANT Write+Read Test ===${NC}"
+run_py_variant_write_java_read_test() {
+    echo -e "${YELLOW}=== Step 13: Running VARIANT Python-Write Java-Read Test ===${NC}"
 
     cd "$PAIMON_PYTHON_DIR"
-    echo "Running Python test for JavaPyReadWriteTest.test_py_write_read_variant_table..."
-    if python -m pytest java_py_read_write_test.py::JavaPyReadWriteTest::test_py_write_read_variant_table -v; then
-        echo -e "${GREEN}✓ Python VARIANT write+read test completed successfully${NC}"
+    echo "Running Python test for JavaPyReadWriteTest.test_py_write_variant_table..."
+    if ! python -m pytest java_py_read_write_test.py::JavaPyReadWriteTest::test_py_write_variant_table -v; then
+        echo -e "${RED}✗ Python VARIANT write test failed${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}✓ Python VARIANT write test completed successfully${NC}"
+
+    echo ""
+
+    cd "$PROJECT_ROOT"
+    echo "Running Maven test for JavaPyE2ETest.testReadVariantTable..."
+    if mvn test -Dtest=org.apache.paimon.JavaPyE2ETest#testReadVariantTable -pl paimon-core -q -Drun.e2e.tests=true; then
+        echo -e "${GREEN}✓ Java VARIANT read test completed successfully${NC}"
         return 0
     else
-        echo -e "${RED}✗ Python VARIANT write+read test failed${NC}"
+        echo -e "${RED}✗ Java VARIANT read test failed${NC}"
         return 1
     fi
 }
@@ -389,8 +399,8 @@ main() {
     local lumina_vector_result=0
     local compact_conflict_result=0
     local blob_alter_compact_result=0
-    local variant_result=0
-    local py_variant_write_result=0
+    local java_variant_write_py_read_result=0
+    local py_variant_write_java_read_result=0
 
     # Detect Python version
     PYTHON_VERSION=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "unknown")
@@ -489,14 +499,14 @@ main() {
 
     # Run VARIANT type test (Java write, Python read)
     if ! run_variant_test; then
-        variant_result=1
+        java_variant_write_py_read_result=1
     fi
 
     echo ""
 
-    # Run Python VARIANT write+read test (Python only, no Java needed)
-    if ! run_py_variant_write_test; then
-        py_variant_write_result=1
+    # Run VARIANT Python-write Java-read test
+    if ! run_py_variant_write_java_read_test; then
+        py_variant_write_java_read_result=1
     fi
 
     echo ""
@@ -569,16 +579,16 @@ main() {
         echo -e "${RED}✗ Blob Alter+Compact Test (Java Write+Alter+Compact, Python Read): FAILED${NC}"
     fi
 
-    if [[ $variant_result -eq 0 ]]; then
+    if [[ $java_variant_write_py_read_result -eq 0 ]]; then
         echo -e "${GREEN}✓ VARIANT Type Test (Java Write, Python Read): PASSED${NC}"
     else
         echo -e "${RED}✗ VARIANT Type Test (Java Write, Python Read): FAILED${NC}"
     fi
 
-    if [[ $py_variant_write_result -eq 0 ]]; then
-        echo -e "${GREEN}✓ Python VARIANT Write+Read Test: PASSED${NC}"
+    if [[ $py_variant_write_java_read_result -eq 0 ]]; then
+        echo -e "${GREEN}✓ VARIANT Type Test (Python Write, Java Read): PASSED${NC}"
     else
-        echo -e "${RED}✗ Python VARIANT Write+Read Test: FAILED${NC}"
+        echo -e "${RED}✗ VARIANT Type Test (Python Write, Java Read): FAILED${NC}"
     fi
 
     echo ""
@@ -586,7 +596,7 @@ main() {
     # Clean up warehouse directory after all tests
     cleanup_warehouse
 
-    if [[ $java_write_result -eq 0 && $python_read_result -eq 0 && $python_write_result -eq 0 && $java_read_result -eq 0 && $pk_dv_result -eq 0 && $btree_index_result -eq 0 && $compressed_text_result -eq 0 && $tantivy_fulltext_result -eq 0 && $lumina_vector_result -eq 0 && $compact_conflict_result -eq 0 && $blob_alter_compact_result -eq 0 && $variant_result -eq 0 && $py_variant_write_result -eq 0 ]]; then
+    if [[ $java_write_result -eq 0 && $python_read_result -eq 0 && $python_write_result -eq 0 && $java_read_result -eq 0 && $pk_dv_result -eq 0 && $btree_index_result -eq 0 && $compressed_text_result -eq 0 && $tantivy_fulltext_result -eq 0 && $lumina_vector_result -eq 0 && $compact_conflict_result -eq 0 && $blob_alter_compact_result -eq 0 && $java_variant_write_py_read_result -eq 0 && $py_variant_write_java_read_result -eq 0 ]]; then
         echo -e "${GREEN}🎉 All tests passed! Java-Python interoperability verified.${NC}"
         return 0
     else

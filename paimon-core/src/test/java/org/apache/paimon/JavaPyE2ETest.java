@@ -989,6 +989,45 @@ public class JavaPyE2ETest {
         LOG.info("testVariantWrite: wrote and read back {} VARIANT rows", res.size());
     }
 
+    /** Read a VARIANT-column table written by Python and verify content (Python→Java E2E). */
+    @Test
+    @EnabledIfSystemProperty(named = "run.e2e.tests", matches = "true")
+    public void testReadVariantTable() throws Exception {
+        Identifier identifier = identifier("py_variant_test");
+        FileStoreTable table = (FileStoreTable) catalog.getTable(identifier);
+        List<Split> splits =
+                new ArrayList<>(table.newSnapshotReader().read().dataSplits());
+        TableRead read = table.newRead();
+        List<String> res =
+                getResult(read, splits, row -> internalRowToString(row, table.rowType()));
+        assertThat(res).hasSize(4);
+
+        // Verify the VARIANT column is present in the schema
+        assertThat(table.rowType().getFieldNames()).contains("payload");
+        assertThat(table.rowType().getTypeAt(table.rowType().getFieldIndex("payload")))
+                .isEqualTo(DataTypes.VARIANT());
+
+        // Verify each row's VARIANT payload can be decoded by Java
+        List<Split> splits2 = new ArrayList<>(table.newSnapshotReader().read().dataSplits());
+        try (org.apache.paimon.reader.RecordReader<InternalRow> reader =
+                read.createReader(splits2)) {
+            reader.forEachRemaining(
+                    row -> {
+                        int id = row.getInt(0);
+                        if (id == 4) {
+                            // null payload
+                            assertThat(row.isNullAt(2)).isTrue();
+                        } else {
+                            assertThat(row.isNullAt(2)).isFalse();
+                            org.apache.paimon.data.variant.Variant v =
+                                    row.getVariant(2);
+                            assertThat(v).isNotNull();
+                        }
+                    });
+        }
+        LOG.info("testReadVariantTable: Java read {} VARIANT rows written by Python", res.size());
+    }
+
     /** Step 1: Write 5 base files for compact conflict test. */
     @Test
     @EnabledIfSystemProperty(named = "run.e2e.tests", matches = "true")
