@@ -25,6 +25,7 @@ import pandas as pd
 import pyarrow as pa
 from parameterized import parameterized
 from pypaimon.catalog.catalog_factory import CatalogFactory
+from pypaimon.data.generic_variant import GenericVariant
 from pypaimon.schema.schema import Schema
 from pypaimon.read.read_builder import ReadBuilder
 
@@ -670,3 +671,133 @@ class JavaPyReadWriteTest(unittest.TestCase):
         self.assertIn("conflicts", str(ctx.exception))
         tc.close()
         print(f"Conflict detected as expected: {ctx.exception}")
+
+    def test_read_variant_table(self):
+        """Read a VARIANT-column table written by Java and verify the struct layout."""
+        table = self.catalog.get_table('default.variant_test')
+        read_builder = table.new_read_builder()
+        table_scan = read_builder.new_scan()
+        table_read = read_builder.new_read()
+        splits = table_scan.plan().splits()
+        result = table_read.to_arrow(splits)
+
+        self.assertEqual(result.num_rows, 3)
+
+        # VARIANT maps to struct<value: binary NOT NULL, metadata: binary NOT NULL>
+        payload_field = result.schema.field('payload')
+        self.assertTrue(pa.types.is_struct(payload_field.type),
+                        f"Expected struct type for VARIANT, got {payload_field.type}")
+        self.assertEqual(payload_field.type.num_fields, 2)
+        self.assertEqual(payload_field.type.field(0).name, 'value')
+        self.assertEqual(payload_field.type.field(1).name, 'metadata')
+        self.assertTrue(pa.types.is_binary(payload_field.type.field(0).type))
+        self.assertTrue(pa.types.is_binary(payload_field.type.field(1).type))
+
+        # All rows should have non-null payload structs
+        payload_col = result.column('payload')
+        for i in range(result.num_rows):
+            row = payload_col[i].as_py()
+            self.assertIsNotNone(row, f"Row {i}: expected non-null VARIANT")
+            self.assertIn('value', row)
+            self.assertIn('metadata', row)
+            self.assertIsInstance(row['value'], bytes)
+            self.assertIsInstance(row['metadata'], bytes)
+            self.assertGreater(len(row['value']), 0)
+
+        # Verify GenericVariant decoding (Java -> Python roundtrip)
+        result_sorted = table_sort_by(result, 'id')
+        id_list = result_sorted.column('id').to_pylist()
+        payload_list = result_sorted.column('payload').to_pylist()
+
+        # Row 1: Alice, {"age":30,"city":"Beijing"}
+        gv_alice = GenericVariant.from_dict(payload_list[id_list.index(1)])
+        self.assertEqual(gv_alice.variant_get('$.age', 'int'), 30)
+        self.assertEqual(gv_alice.variant_get('$.city', 'string'), 'Beijing')
+
+        # Row 2: Bob, {"age":25,"city":"Shanghai"}
+        gv_bob = GenericVariant.from_dict(payload_list[id_list.index(2)])
+        self.assertEqual(gv_bob.variant_get('$.age', 'int'), 25)
+        self.assertEqual(gv_bob.variant_get('$.city', 'string'), 'Shanghai')
+
+        # Row 3: Carol, [1,2,3]
+        gv_carol = GenericVariant.from_dict(payload_list[id_list.index(3)])
+        self.assertEqual(gv_carol.to_python(), [1, 2, 3])
+
+        print(f"test_read_variant_table: verified {result.num_rows} VARIANT rows")
+
+    def test_py_write_read_variant_table(self):
+        """Python-only write+read test for VARIANT columns using GenericVariant."""
+        variant_type = pa.struct([
+            pa.field('value', pa.binary(), nullable=False),
+            pa.field('metadata', pa.binary(), nullable=False),
+        ])
+        pa_schema = pa.schema([
+            ('id', pa.int32()),
+            ('name', pa.string()),
+            ('payload', variant_type),
+        ])
+
+        schema = Schema.from_pyarrow_schema(
+            pa_schema,
+            options={'bucket': '-1'}
+        )
+
+        table_name = 'default.py_variant_test'
+        self.catalog.create_table(table_name, schema, True)
+        table = self.catalog.get_table(table_name)
+
+        # Construct GenericVariant objects
+        gv1 = GenericVariant.from_json('{"name":"test","value":42}')
+        gv2 = GenericVariant.from_json('[10,20,30]')
+        gv3 = GenericVariant.from_json('"hello"')
+        gv4 = GenericVariant.from_json('null')
+
+        # Build the VARIANT column
+        variant_col = GenericVariant.to_arrow_array([gv1, gv2, gv3, gv4])
+
+        data = pa.table({
+            'id': pa.array([1, 2, 3, 4], type=pa.int32()),
+            'name': pa.array(['row1', 'row2', 'row3', 'row4'], type=pa.string()),
+            'payload': variant_col,
+        }, schema=pa_schema)
+
+        # Write
+        write_builder = table.new_batch_write_builder()
+        table_write = write_builder.new_write()
+        table_commit = write_builder.new_commit()
+        table_write.write_arrow(data)
+        table_commit.commit(table_write.prepare_commit())
+        table_write.close()
+        table_commit.close()
+
+        # Read back
+        read_builder = table.new_read_builder()
+        table_scan = read_builder.new_scan()
+        table_read = read_builder.new_read()
+        splits = table_scan.plan().splits()
+        result = table_read.to_arrow(splits)
+
+        self.assertEqual(result.num_rows, 4)
+
+        # Sort by id for deterministic assertion
+        result = table_sort_by(result, 'id')
+        payloads = result.column('payload').to_pylist()
+
+        # Row 1: object
+        gv = GenericVariant.from_dict(payloads[0])
+        self.assertEqual(gv.variant_get('$.name', 'string'), 'test')
+        self.assertEqual(gv.variant_get('$.value', 'int'), 42)
+
+        # Row 2: array
+        gv = GenericVariant.from_dict(payloads[1])
+        self.assertEqual(gv.to_python(), [10, 20, 30])
+
+        # Row 3: string
+        gv = GenericVariant.from_dict(payloads[2])
+        self.assertEqual(gv.to_python(), 'hello')
+
+        # Row 4: null
+        gv = GenericVariant.from_dict(payloads[3])
+        self.assertIsNone(gv.to_python())
+
+        print(f"test_py_write_read_variant_table: verified {result.num_rows} rows")

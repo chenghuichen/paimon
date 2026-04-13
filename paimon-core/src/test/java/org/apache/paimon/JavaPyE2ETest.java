@@ -28,6 +28,7 @@ import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.DataFormatTestUtil;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.fs.FileIOFinder;
 import org.apache.paimon.fs.Path;
@@ -939,6 +940,53 @@ public class JavaPyE2ETest {
 
     protected GenericRow createRow3ColsWithKind(RowKind rowKind, Object... values) {
         return GenericRow.ofKind(rowKind, values[0], values[1], values[2]);
+    }
+
+    /** Write a VARIANT column table for Python interoperability test. */
+    @Test
+    @EnabledIfSystemProperty(named = "run.e2e.tests", matches = "true")
+    public void testVariantWrite() throws Exception {
+        Identifier identifier = identifier("variant_test");
+        catalog.dropTable(identifier, true);
+        Schema schema =
+                Schema.newBuilder()
+                        .column("id", DataTypes.INT())
+                        .column("name", DataTypes.STRING())
+                        .column("payload", DataTypes.VARIANT())
+                        .option("bucket", "-1")
+                        .build();
+        catalog.createTable(identifier, schema, false);
+
+        FileStoreTable table = (FileStoreTable) catalog.getTable(identifier);
+        BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = writeBuilder.newWrite();
+                BatchTableCommit commit = writeBuilder.newCommit()) {
+            write.write(
+                    GenericRow.of(
+                            1,
+                            BinaryString.fromString("Alice"),
+                            GenericVariant.fromJson("{\"age\":30,\"city\":\"Beijing\"}")));
+            write.write(
+                    GenericRow.of(
+                            2,
+                            BinaryString.fromString("Bob"),
+                            GenericVariant.fromJson("{\"age\":25,\"city\":\"Shanghai\"}")));
+            write.write(
+                    GenericRow.of(
+                            3,
+                            BinaryString.fromString("Carol"),
+                            GenericVariant.fromJson("[1,2,3]")));
+            commit.commit(write.prepareCommit());
+        }
+
+        // Verify Java can read back what it wrote
+        FileStoreTable readTable = (FileStoreTable) catalog.getTable(identifier);
+        List<Split> splits = new ArrayList<>(readTable.newSnapshotReader().read().dataSplits());
+        TableRead read = readTable.newRead();
+        List<String> res =
+                getResult(read, splits, row -> internalRowToString(row, readTable.rowType()));
+        assertThat(res).hasSize(3);
+        LOG.info("testVariantWrite: wrote and read back {} VARIANT rows", res.size());
     }
 
     /** Step 1: Write 5 base files for compact conflict test. */

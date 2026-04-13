@@ -687,22 +687,105 @@ Row kind values:
 
 ## Data Types
 
-| Python Native Type  | PyArrow Type                                     | Paimon Type                       |
-|:--------------------|:-------------------------------------------------|:----------------------------------|
-| `int`               | `pyarrow.int8()`                                 | `TINYINT`                         |
-| `int`               | `pyarrow.int16()`                                | `SMALLINT`                        |
-| `int`               | `pyarrow.int32()`                                | `INT`                             |
-| `int`               | `pyarrow.int64()`                                | `BIGINT`                          |
-| `float`             | `pyarrow.float32()`                              | `FLOAT`                           |
-| `float`             | `pyarrow.float64()`                              | `DOUBLE`                          |
-| `bool`              | `pyarrow.bool_()`                                | `BOOLEAN`                         |
-| `str`               | `pyarrow.string()`                               | `STRING`, `CHAR(n)`, `VARCHAR(n)` |
-| `bytes`             | `pyarrow.binary()`                               | `BYTES`, `VARBINARY(n)`           |
-| `bytes`             | `pyarrow.binary(length)`                         | `BINARY(length)`                  |
-| `decimal.Decimal`   | `pyarrow.decimal128(precision, scale)`           | `DECIMAL(precision, scale)`       |
-| `datetime.datetime` | `pyarrow.timestamp(unit, tz=None)`               | `TIMESTAMP(p)`                    |
-| `datetime.date`     | `pyarrow.date32()`                               | `DATE`                            |
-| `datetime.time`     | `pyarrow.time32(unit)` or `pyarrow.time64(unit)` | `TIME(p)`                         |
+### Scalar Types
+
+| Python Native Type  | PyArrow Type                           | Paimon Type                       |
+|:--------------------|:---------------------------------------|:----------------------------------|
+| `int`               | `pyarrow.int8()`                       | `TINYINT`                         |
+| `int`               | `pyarrow.int16()`                      | `SMALLINT`                        |
+| `int`               | `pyarrow.int32()`                      | `INT`                             |
+| `int`               | `pyarrow.int64()`                      | `BIGINT`                          |
+| `float`             | `pyarrow.float32()`                    | `FLOAT`                           |
+| `float`             | `pyarrow.float64()`                    | `DOUBLE`                          |
+| `bool`              | `pyarrow.bool_()`                      | `BOOLEAN`                         |
+| `str`               | `pyarrow.string()`                     | `STRING`, `CHAR(n)`, `VARCHAR(n)` |
+| `bytes`             | `pyarrow.binary()`                     | `BYTES`, `VARBINARY(n)`           |
+| `bytes`             | `pyarrow.binary(length)`               | `BINARY(length)`                  |
+| `bytes`             | `pyarrow.large_binary()`               | `BLOB`                            |
+| `decimal.Decimal`   | `pyarrow.decimal128(precision, scale)` | `DECIMAL(precision, scale)`       |
+| `datetime.datetime` | `pyarrow.timestamp('us', tz=None)`     | `TIMESTAMP(p)` (p=4..6)          |
+| `datetime.datetime` | `pyarrow.timestamp('ms', tz=None)`     | `TIMESTAMP(p)` (p=1..3)          |
+| `datetime.datetime` | `pyarrow.timestamp('s',  tz=None)`     | `TIMESTAMP(p)` (p=0)             |
+| `datetime.datetime` | `pyarrow.timestamp('ns', tz=None)`     | `TIMESTAMP(p)` (p=7..9)          |
+| `datetime.datetime` | `pyarrow.timestamp('us', tz='UTC')`    | `TIMESTAMP_LTZ(p)` (p=4..6)     |
+| `datetime.date`     | `pyarrow.date32()`                     | `DATE`                            |
+| `datetime.time`     | `pyarrow.time32('ms')`                 | `TIME(p)`                         |
+
+### Complex Types
+
+| Python Native Type | PyArrow Type                          | Paimon Type            |
+|:-------------------|:--------------------------------------|:-----------------------|
+| `list`             | `pyarrow.list_(element_type)`         | `ARRAY<element_type>`  |
+| `dict`             | `pyarrow.map_(key_type, value_type)`  | `MAP<key, value>`      |
+| `dict`             | `pyarrow.struct([field, ...])`        | `ROW<field ...>`       |
+
+### VARIANT Type
+
+`VARIANT` stores semi-structured, schema-flexible data (JSON objects, arrays, and primitives)
+in the [Parquet Variant binary encoding](https://github.com/apache/parquet-format/blob/master/VariantEncoding.md).
+
+pypaimon provides `GenericVariant` for encoding, decoding, and path extraction:
+
+```python
+from pypaimon.data.generic_variant import GenericVariant
+```
+
+**Reading a VARIANT column:**
+
+```python
+read_builder = table.new_read_builder()
+result = read_builder.new_read().to_arrow(read_builder.new_scan().plan().splits())
+
+for row in result.column("payload").to_pylist():
+    if row is not None:
+        gv = GenericVariant.from_dict(row)        # wrap raw bytes
+        print(gv.to_python())                     # decode to Python object
+        print(gv.variant_get("$.city", "string")) # path extraction
+```
+
+**Writing a VARIANT column:**
+
+```python
+import pyarrow as pa
+from pypaimon.data.generic_variant import GenericVariant
+
+gv1 = GenericVariant.from_json('{"city": "Beijing", "age": 30}')
+gv2 = GenericVariant.from_json('[1, 2, 3]')
+gv3 = GenericVariant.from_json('null')
+
+data = pa.table({
+    "id":      pa.array([1, 2, 3], type=pa.int32()),
+    "payload": GenericVariant.to_arrow_array([gv1, gv2, gv3]),
+})
+
+write_builder = table.new_batch_write_builder()
+table_write = write_builder.new_write()
+table_commit = write_builder.new_commit()
+table_write.write_arrow(data)
+table_commit.commit(table_write.prepare_commit())
+table_write.close()
+table_commit.close()
+```
+
+**`GenericVariant` API:**
+
+| Method | Description |
+|:-------|:------------|
+| `GenericVariant.from_json(json_str)` | Build from a JSON string |
+| `GenericVariant.from_python(obj)` | Build from a Python object (`dict`, `list`, `int`, `str`, …) |
+| `GenericVariant.from_dict({"value": b"...", "metadata": b"..."})` | Wrap raw bytes from an Arrow VARIANT struct row |
+| `GenericVariant.to_arrow_array([gv1, gv2, None, ...])` | Convert a list of `GenericVariant` (or `None`) to a `pa.StructArray` for writing |
+| `gv.to_python()` | Decode to native Python (`dict`, `list`, `int`, `str`, `None`, …) |
+| `gv.to_json()` | Decode to a JSON string |
+| `gv.variant_get(path, cast_type=None)` | Extract a value by JSONPath (e.g. `"$.address.city"`, `"$.tags[0]"`); optional `cast_type`: `"string"`, `"int"`, `"long"`, `"double"`, `"boolean"`, `"decimal"` |
+| `gv.get_type()` | Return the `Type` enum of the root value |
+
+**Limitations:**
+
+- `VARIANT` is only supported with Parquet file format. Writing to ORC or Avro raises `NotImplementedError`.
+- `VARIANT` cannot be used as a primary key or partition key.
+- Shredded VARIANT files (written by Paimon Java with `typed_value` sub-fields) are readable
+  via the raw `from_dict` path, but the extra fields are not automatically interpreted.
 
 ## Predicate
 
