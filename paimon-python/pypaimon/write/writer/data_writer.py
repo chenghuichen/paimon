@@ -70,6 +70,8 @@ class DataWriter(ABC):
         )
         # Store the current generated external path to preserve scheme in metadata
         self._current_external_path: Optional[str] = None
+        # Guard so the VARIANT-format compatibility check runs only once per writer instance.
+        self._variant_format_checked: bool = False
 
     def write(self, data: pa.RecordBatch):
         try:
@@ -155,7 +157,14 @@ class DataWriter(ABC):
             self.pending_data = remaining_data
 
     def _check_no_variant_for_format(self, schema: pa.Schema):
-        """Raise NotImplementedError if any VARIANT column is present for an unsupported format."""
+        """Raise NotImplementedError if any VARIANT column is present for an unsupported format.
+
+        The check is performed only once per writer instance; subsequent calls are no-ops
+        because the schema and file format are both fixed for the lifetime of the writer.
+        """
+        if self._variant_format_checked:
+            return
+        self._variant_format_checked = True
         if self.file_format in (CoreOptions.FILE_FORMAT_ORC, CoreOptions.FILE_FORMAT_AVRO):
             for field in schema:
                 if pa.types.is_struct(field.type) and is_variant_struct(field.type):

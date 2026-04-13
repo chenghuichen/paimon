@@ -31,6 +31,7 @@ Primary entry points:
     v.to_python()                       – decode to native Python objects
 """
 
+import base64
 import datetime
 import decimal as _decimal
 import enum
@@ -84,7 +85,6 @@ _MAX_DECIMAL16_PRECISION = 38
 _EPOCH_DATE = datetime.date(1970, 1, 1)
 _EPOCH_DT_UTC = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 _EPOCH_DT_NTZ = datetime.datetime(1970, 1, 1)
-
 
 
 class Type(enum.Enum):
@@ -150,8 +150,7 @@ def _read_signed(data, pos, n):
 
 def _write_le(buf, pos, value, n):
     """Write value as n-byte little-endian into bytearray buf at pos."""
-    for i in range(n):
-        buf[pos + i] = (value >> (8 * i)) & 0xFF
+    buf[pos:pos + n] = value.to_bytes(n, 'little')
 
 
 def _get_int_size(value):
@@ -652,7 +651,7 @@ class _GenericVariantBuilder:
             if scale <= _MAX_DECIMAL16_PRECISION and precision <= _MAX_DECIMAL16_PRECISION:
                 self.append_decimal(d)
                 return
-        except Exception:
+        except (ArithmeticError, ValueError):
             pass
         self.append_double(float(d))
 
@@ -890,12 +889,23 @@ class GenericVariant:
 
     def get_field_by_key(self, key: str):
         """Return the field GenericVariant for the given key, or None if not found."""
+        metadata = self._metadata
+        # Pre-parse the metadata header once for the entire lookup.
+        meta_offset_size = ((metadata[0] >> 6) & 0x3) + 1
+        meta_dict_size = _read_unsigned(metadata, 1, meta_offset_size)
+        string_start = 1 + (meta_dict_size + 2) * meta_offset_size
+
+        def _get_key(key_id):
+            off = _read_unsigned(metadata, 1 + (key_id + 1) * meta_offset_size, meta_offset_size)
+            nxt = _read_unsigned(metadata, 1 + (key_id + 2) * meta_offset_size, meta_offset_size)
+            return metadata[string_start + off:string_start + nxt].decode('utf-8')
+
         def _lookup(size, id_size, offset_size, id_start, offset_start, data_start):
-            # Binary search for large objects, linear for small ones
+            # Linear scan for small objects, binary search for large ones.
             if size < _BINARY_SEARCH_THRESHOLD:
                 for i in range(size):
                     fid = _read_unsigned(self._value, id_start + id_size * i, id_size)
-                    if key == _get_metadata_key(self._metadata, fid):
+                    if key == _get_key(fid):
                         offset = _read_unsigned(
                             self._value, offset_start + offset_size * i, offset_size)
                         return GenericVariant(self._value, self._metadata,
@@ -905,7 +915,7 @@ class GenericVariant:
                 while lo <= hi:
                     mid = (lo + hi) >> 1
                     fid = _read_unsigned(self._value, id_start + id_size * mid, id_size)
-                    cmp = _get_metadata_key(self._metadata, fid)
+                    cmp = _get_key(fid)
                     if cmp < key:
                         lo = mid + 1
                     elif cmp > key:
@@ -1018,7 +1028,6 @@ class GenericVariant:
                 dt = _EPOCH_DT_NTZ + datetime.timedelta(microseconds=micros)
                 parts.append(_json.dumps(dt.strftime('%Y-%m-%d %H:%M:%S.%f')))
             elif vtype == Type.BINARY:
-                import base64
                 parts.append(_json.dumps(base64.b64encode(sub.get_binary()).decode('ascii')))
             elif vtype == Type.UUID:
                 parts.append(_json.dumps(str(sub.get_uuid())))
@@ -1066,14 +1075,24 @@ class GenericVariant:
         if vtype == Type.UUID:
             return str(self.get_uuid())
         if vtype == Type.OBJECT:
-            result = {}
-            for i in range(self.object_size()):
-                key, child = self.get_field_at_index(i)
-                result[key] = child.to_python()
-            return result
+            def _build_dict(size, id_size, offset_size, id_start, offset_start, data_start):
+                result = {}
+                for i in range(size):
+                    fid = _read_unsigned(self._value, id_start + id_size * i, id_size)
+                    key = _get_metadata_key(self._metadata, fid)
+                    offset = _read_unsigned(self._value, offset_start + offset_size * i, offset_size)
+                    child = GenericVariant(self._value, self._metadata, data_start + offset)
+                    result[key] = child.to_python()
+                return result
+            return _handle_object(self._value, self._pos, _build_dict)
         if vtype == Type.ARRAY:
-            return [self.get_element_at_index(i).to_python()
-                    for i in range(self.array_size())]
+            def _build_list(size, offset_size, offset_start, data_start):
+                result = []
+                for i in range(size):
+                    offset = _read_unsigned(self._value, offset_start + offset_size * i, offset_size)
+                    result.append(GenericVariant(self._value, self._metadata, data_start + offset).to_python())
+                return result
+            return _handle_array(self._value, self._pos, _build_list)
         return None
 
     def variant_get(self, path: str, cast_type: str = None):

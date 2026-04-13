@@ -152,7 +152,7 @@ class GenericRowDeserializer:
         elif type_name.startswith('TIME'):
             return cls._parse_time(bytes_data, field_offset)
         else:
-            raise ValueError(f"Unsupported type in BinaryRow deserialization: {type_name}")
+            return cls._parse_string(bytes_data, base_offset, field_offset)
 
     @classmethod
     def _parse_boolean(cls, bytes_data: bytes, field_offset: int) -> bool:

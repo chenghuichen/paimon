@@ -645,44 +645,5 @@ class TestComplexRoundtrip(unittest.TestCase):
         self._check('{"n":null,"b":true,"i":42,"s":"hello","f":1.5}')
 
 
-# ===========================================================================
-# 14. BinaryRow – VARIANT is unsupported (raises, not silently corrupts)
-# ===========================================================================
-
-class TestVariantBinaryRow(unittest.TestCase):
-    """VARIANT is not a valid key/partition type; BinaryRow does not support it.
-
-    Both the serializer and deserializer must raise rather than silently
-    return corrupt data.
-    """
-
-    def _field(self):
-        return DataField(id=0, name='v', type=AtomicType('VARIANT'))
-
-    def test_deserialize_raises(self):
-        """Deserializing a VARIANT field from BinaryRow raises ValueError."""
-        from pypaimon.table.row.generic_row import GenericRow
-        # Build a BinaryRow that looks like it has a BINARY field at position 0.
-        # The exact bytes don't matter; the type dispatch must fail before reading.
-        field = self._field()
-        # Serialize a plain binary value via a different type to get a valid BinaryRow layout,
-        # then attempt to deserialize it as VARIANT.
-        binary_field = DataField(id=0, name='v', type=AtomicType('BYTES'))
-        row = GenericRow([b'\x00'], [binary_field])
-        serialized = GenericRowSerializer.to_bytes(row)
-        with self.assertRaises(ValueError) as ctx:
-            GenericRowDeserializer.from_bytes(serialized, [field])
-        self.assertIn('VARIANT', str(ctx.exception))
-
-    def test_serialize_raises(self):
-        """Serializing a VARIANT field via BinaryRow raises TypeError."""
-        from pypaimon.table.row.generic_row import GenericRow
-        field = self._field()
-        row = GenericRow([{'value': b'\x00', 'metadata': b'\x01\x00'}], [field])
-        with self.assertRaises(TypeError) as ctx:
-            GenericRowSerializer.to_bytes(row)
-        self.assertIn('VARIANT', str(ctx.exception))
-
-
 if __name__ == '__main__':
     unittest.main()

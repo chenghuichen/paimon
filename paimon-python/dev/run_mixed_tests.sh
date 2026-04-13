@@ -339,21 +339,22 @@ run_blob_alter_compact_test() {
     fi
 }
 
-run_variant_test() {
-    echo -e "${YELLOW}=== Running VARIANT Type Test (Java Write, Python Read) ===${NC}"
+# Function to run VARIANT test (Java write, Python read)
+run_java_variant_write_py_read_test() {
+    echo -e "${YELLOW}=== Running VARIANT Test (Java Write, Python Read) ===${NC}"
 
     cd "$PROJECT_ROOT"
 
-    echo "Running Maven test for JavaPyE2ETest.testVariantWrite..."
-    if mvn test -Dtest=org.apache.paimon.JavaPyE2ETest#testVariantWrite -pl paimon-core -q -Drun.e2e.tests=true; then
+    echo "Running Maven test for JavaPyE2ETest.testJavaWriteVariantTable..."
+    if mvn test -Dtest=org.apache.paimon.JavaPyE2ETest#testJavaWriteVariantTable -pl paimon-core -q -Drun.e2e.tests=true; then
         echo -e "${GREEN}✓ Java VARIANT write test completed successfully${NC}"
     else
         echo -e "${RED}✗ Java VARIANT write test failed${NC}"
         return 1
     fi
     cd "$PAIMON_PYTHON_DIR"
-    echo "Running Python test for JavaPyReadWriteTest.test_read_variant_table..."
-    if python -m pytest java_py_read_write_test.py::JavaPyReadWriteTest::test_read_variant_table -v; then
+    echo "Running Python test for JavaPyReadWriteTest.test_py_read_variant_table..."
+    if python -m pytest java_py_read_write_test.py::JavaPyReadWriteTest::test_py_read_variant_table -v; then
         echo -e "${GREEN}✓ Python VARIANT read test completed successfully${NC}"
         return 0
     else
@@ -362,8 +363,9 @@ run_variant_test() {
     fi
 }
 
+# Function to run VARIANT test (Python write, Java read)
 run_py_variant_write_java_read_test() {
-    echo -e "${YELLOW}=== Step 13: Running VARIANT Python-Write Java-Read Test ===${NC}"
+    echo -e "${YELLOW}=== Running VARIANT Test (Python Write, Java Read) ===${NC}"
 
     cd "$PAIMON_PYTHON_DIR"
     echo "Running Python test for JavaPyReadWriteTest.test_py_write_variant_table..."
@@ -376,8 +378,8 @@ run_py_variant_write_java_read_test() {
     echo ""
 
     cd "$PROJECT_ROOT"
-    echo "Running Maven test for JavaPyE2ETest.testReadVariantTable..."
-    if mvn test -Dtest=org.apache.paimon.JavaPyE2ETest#testReadVariantTable -pl paimon-core -q -Drun.e2e.tests=true; then
+    echo "Running Maven test for JavaPyE2ETest.testJavaReadVariantTable..."
+    if mvn test -Dtest=org.apache.paimon.JavaPyE2ETest#testJavaReadVariantTable -pl paimon-core -q -Drun.e2e.tests=true; then
         echo -e "${GREEN}✓ Java VARIANT read test completed successfully${NC}"
         return 0
     else
@@ -498,7 +500,7 @@ main() {
     echo ""
 
     # Run VARIANT type test (Java write, Python read)
-    if ! run_variant_test; then
+    if ! run_java_variant_write_py_read_test; then
         java_variant_write_py_read_result=1
     fi
 

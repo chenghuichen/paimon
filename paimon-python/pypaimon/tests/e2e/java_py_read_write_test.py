@@ -672,8 +672,8 @@ class JavaPyReadWriteTest(unittest.TestCase):
         tc.close()
         print(f"Conflict detected as expected: {ctx.exception}")
 
-    def test_read_variant_table(self):
-        """Read a VARIANT-column table written by Java and verify the struct layout."""
+    def test_py_read_variant_table(self):
+        """Python reads a VARIANT-column table written by Java (Java→Python E2E)."""
         table = self.catalog.get_table('default.variant_test')
         read_builder = table.new_read_builder()
         table_scan = read_builder.new_scan()
@@ -723,10 +723,10 @@ class JavaPyReadWriteTest(unittest.TestCase):
         gv_carol = GenericVariant.from_dict(payload_list[id_list.index(3)])
         self.assertEqual(gv_carol.to_python(), [1, 2, 3])
 
-        print(f"test_read_variant_table: verified {result.num_rows} VARIANT rows")
+        print(f"test_py_read_variant_table: verified {result.num_rows} VARIANT rows")
 
     def test_py_write_variant_table(self):
-        """Write a VARIANT-column table for Java to read back (Python→Java E2E).
+        """Python writes a VARIANT-column table for Java to read back (Python→Java E2E).
 
         Data written:
             id=1  payload={"name":"test","value":42}

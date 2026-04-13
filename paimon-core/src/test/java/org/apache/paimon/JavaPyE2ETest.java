@@ -942,10 +942,10 @@ public class JavaPyE2ETest {
         return GenericRow.ofKind(rowKind, values[0], values[1], values[2]);
     }
 
-    /** Write a VARIANT column table for Python interoperability test. */
+    /** Java writes a VARIANT-column table for Python to read (Java→Python E2E). */
     @Test
     @EnabledIfSystemProperty(named = "run.e2e.tests", matches = "true")
-    public void testVariantWrite() throws Exception {
+    public void testJavaWriteVariantTable() throws Exception {
         Identifier identifier = identifier("variant_test");
         catalog.dropTable(identifier, true);
         Schema schema =
@@ -986,13 +986,13 @@ public class JavaPyE2ETest {
         List<String> res =
                 getResult(read, splits, row -> internalRowToString(row, readTable.rowType()));
         assertThat(res).hasSize(3);
-        LOG.info("testVariantWrite: wrote and read back {} VARIANT rows", res.size());
+        LOG.info("testJavaWriteVariantTable: wrote and read back {} VARIANT rows", res.size());
     }
 
-    /** Read a VARIANT-column table written by Python and verify content (Python→Java E2E). */
+    /** Java reads a VARIANT-column table written by Python (Python→Java E2E). */
     @Test
     @EnabledIfSystemProperty(named = "run.e2e.tests", matches = "true")
-    public void testReadVariantTable() throws Exception {
+    public void testJavaReadVariantTable() throws Exception {
         Identifier identifier = identifier("py_variant_test");
         FileStoreTable table = (FileStoreTable) catalog.getTable(identifier);
         List<Split> splits =
@@ -1025,7 +1025,7 @@ public class JavaPyE2ETest {
                         }
                     });
         }
-        LOG.info("testReadVariantTable: Java read {} VARIANT rows written by Python", res.size());
+        LOG.info("testJavaReadVariantTable: Java read {} VARIANT rows written by Python", res.size());
     }
 
     /** Step 1: Write 5 base files for compact conflict test. */
