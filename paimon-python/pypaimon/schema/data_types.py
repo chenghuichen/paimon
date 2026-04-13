@@ -469,7 +469,7 @@ def is_variant_struct(pa_type: pyarrow.StructType) -> bool:
     """
     if pa_type.num_fields != 2:
         return False
-    f0, f1 = pa_type.field(0), pa_type.field(1)
+    f0, f1 = pa_type[0], pa_type[1]
     return (
         f0.name == 'value' and pyarrow.types.is_binary(f0.type) and not f0.nullable
         and f1.name == 'metadata' and pyarrow.types.is_binary(f1.type) and not f1.nullable

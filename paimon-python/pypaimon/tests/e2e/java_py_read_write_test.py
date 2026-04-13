@@ -688,10 +688,10 @@ class JavaPyReadWriteTest(unittest.TestCase):
         self.assertTrue(pa.types.is_struct(payload_field.type),
                         f"Expected struct type for VARIANT, got {payload_field.type}")
         self.assertEqual(payload_field.type.num_fields, 2)
-        self.assertEqual(payload_field.type.field(0).name, 'value')
-        self.assertEqual(payload_field.type.field(1).name, 'metadata')
-        self.assertTrue(pa.types.is_binary(payload_field.type.field(0).type))
-        self.assertTrue(pa.types.is_binary(payload_field.type.field(1).type))
+        self.assertEqual(payload_field.type[0].name, 'value')
+        self.assertEqual(payload_field.type[1].name, 'metadata')
+        self.assertTrue(pa.types.is_binary(payload_field.type[0].type))
+        self.assertTrue(pa.types.is_binary(payload_field.type[1].type))
 
         # All rows should have non-null payload structs
         payload_col = result.column('payload')
