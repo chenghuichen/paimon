@@ -274,8 +274,14 @@ trait MergePaimonScalarSubqueriesBase extends Rule[LogicalPlan] with PredicateHe
   protected def mergePaimonScan(scan1: PaimonScan, scan2: PaimonScan): Option[PaimonScan] = {
     if (scan1 == scan2) {
       Some(scan2)
-    } else if (scan1 == scan2.copy(requiredSchema = scan1.requiredSchema)) {
-      // Equals except `requiredSchema`
+    } else if (
+      scan1 == scan2.copy(
+        requiredSchema = scan1.requiredSchema,
+        variantProjections = scan1.variantProjections)
+    ) {
+      // Equals except `requiredSchema` (and possibly `variantProjections`)
+      // Scans with different variant projections cannot be merged safely
+      if (scan1.variantProjections != scan2.variantProjections) return None
       val mergedRequiredSchema = StructType(
         (scan2.requiredSchema.fields.toSet ++ scan1.requiredSchema.fields.toSet).toArray)
       Some(scan2.copy(requiredSchema = mergedRequiredSchema))

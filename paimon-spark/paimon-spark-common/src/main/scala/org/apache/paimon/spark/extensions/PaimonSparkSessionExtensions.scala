@@ -66,6 +66,9 @@ class PaimonSparkSessionExtensions extends (SparkSessionExtensions => Unit) {
     // optimization rules
     extensions.injectOptimizerRule(_ => OptimizeMetadataOnlyDeleteFromPaimonTable)
     extensions.injectOptimizerRule(_ => MergePaimonScalarSubqueries)
+    SparkShimLoader.shim.variantExtractRule().foreach {
+      rule => extensions.injectOptimizerRule(_ => rule)
+    }
 
     // planner extensions
     extensions.injectPlannerStrategy(spark => PaimonStrategy(spark))
