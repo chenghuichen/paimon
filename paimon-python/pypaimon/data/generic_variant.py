@@ -709,7 +709,7 @@ class GenericVariant:
 
         # Construct from raw bytes (e.g. what to_arrow() returns for a VARIANT column)
         row = result.column('payload')[0].as_py()   # {'value': bytes, 'metadata': bytes}
-        v = GenericVariant.from_dict(row)
+        v = GenericVariant.from_arrow_struct(row)
         print(v.to_python())                        # {'age': 30, 'city': 'Beijing'}
     """
 
@@ -741,8 +741,15 @@ class GenericVariant:
         return builder.result()
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'GenericVariant':
-        """Wrap raw bytes from a PyArrow VARIANT struct: {'value': bytes, 'metadata': bytes}."""
+    def from_arrow_struct(cls, d: dict) -> 'GenericVariant':
+        """Wrap raw bytes from a PyArrow VARIANT struct: {'value': bytes, 'metadata': bytes}.
+
+        Use this on the read path after calling ``column.to_pylist()`` on a VARIANT column::
+
+            for row in result.column("payload").to_pylist():
+                if row is not None:
+                    gv = GenericVariant.from_arrow_struct(row)
+        """
         return cls(bytes(d['value']), bytes(d['metadata']))
 
     @classmethod

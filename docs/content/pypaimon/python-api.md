@@ -736,11 +736,11 @@ from pypaimon.data.generic_variant import GenericVariant
 read_builder = table.new_read_builder()
 result = read_builder.new_read().to_arrow(read_builder.new_scan().plan().splits())
 
-for row in result.column("payload").to_pylist():
-    if row is not None:
-        gv = GenericVariant.from_dict(row)        # wrap raw bytes
-        print(gv.to_python())                     # decode to Python object
-        print(gv.variant_get("$.city", "string")) # path extraction
+for record in result.to_pylist():
+    if (payload := record["payload"]) is not None:
+        gv = GenericVariant.from_arrow_struct(payload)
+        print(gv.to_python())                      # decode to Python object
+        print(gv.variant_get("$.city", "string"))  # path extraction
 ```
 
 **Writing a VARIANT column:**
@@ -773,7 +773,7 @@ table_commit.close()
 |:-------|:------------|
 | `GenericVariant.from_json(json_str)` | Build from a JSON string |
 | `GenericVariant.from_python(obj)` | Build from a Python object (`dict`, `list`, `int`, `str`, …) |
-| `GenericVariant.from_dict({"value": b"...", "metadata": b"..."})` | Wrap raw bytes from an Arrow VARIANT struct row |
+| `GenericVariant.from_arrow_struct({"value": b"...", "metadata": b"..."})` | Wrap raw bytes from an Arrow VARIANT struct row (read path) |
 | `GenericVariant.to_arrow_array([gv1, gv2, None, ...])` | Convert a list of `GenericVariant` (or `None`) to a `pa.StructArray` for writing |
 | `gv.to_python()` | Decode to native Python (`dict`, `list`, `int`, `str`, `None`, …) |
 | `gv.to_json()` | Decode to a JSON string |
@@ -785,7 +785,7 @@ table_commit.close()
 - `VARIANT` is only supported with Parquet file format. Writing to ORC or Avro raises `NotImplementedError`.
 - `VARIANT` cannot be used as a primary key or partition key.
 - Shredded VARIANT files (written by Paimon Java with `typed_value` sub-fields) are readable
-  via the raw `from_dict` path, but the extra fields are not automatically interpreted.
+  via the raw `from_arrow_struct` path, but the extra fields are not automatically interpreted.
 
 ## Predicate
 

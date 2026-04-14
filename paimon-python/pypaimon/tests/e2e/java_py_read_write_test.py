@@ -710,17 +710,17 @@ class JavaPyReadWriteTest(unittest.TestCase):
         payload_list = result_sorted.column('payload').to_pylist()
 
         # Row 1: Alice, {"age":30,"city":"Beijing"}
-        gv_alice = GenericVariant.from_dict(payload_list[id_list.index(1)])
+        gv_alice = GenericVariant.from_arrow_struct(payload_list[id_list.index(1)])
         self.assertEqual(gv_alice.variant_get('$.age', 'int'), 30)
         self.assertEqual(gv_alice.variant_get('$.city', 'string'), 'Beijing')
 
         # Row 2: Bob, {"age":25,"city":"Shanghai"}
-        gv_bob = GenericVariant.from_dict(payload_list[id_list.index(2)])
+        gv_bob = GenericVariant.from_arrow_struct(payload_list[id_list.index(2)])
         self.assertEqual(gv_bob.variant_get('$.age', 'int'), 25)
         self.assertEqual(gv_bob.variant_get('$.city', 'string'), 'Shanghai')
 
         # Row 3: Carol, [1,2,3]
-        gv_carol = GenericVariant.from_dict(payload_list[id_list.index(3)])
+        gv_carol = GenericVariant.from_arrow_struct(payload_list[id_list.index(3)])
         self.assertEqual(gv_carol.to_python(), [1, 2, 3])
 
         print(f"test_py_read_variant_table: verified {result.num_rows} VARIANT rows")

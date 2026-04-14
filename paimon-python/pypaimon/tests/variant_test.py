@@ -538,14 +538,14 @@ class TestVariantGet(unittest.TestCase):
 
 class TestConstructors(unittest.TestCase):
 
-    def test_from_dict_roundtrip(self):
+    def test_from_arrow_struct_roundtrip(self):
         original = GenericVariant.from_json('{"x":1,"y":2}')
-        restored = GenericVariant.from_dict({'value': original.value(), 'metadata': original.metadata()})
+        restored = GenericVariant.from_arrow_struct({'value': original.value(), 'metadata': original.metadata()})
         self.assertEqual(restored.to_json(), original.to_json())
 
-    def test_from_dict_array(self):
+    def test_from_arrow_struct_array(self):
         original = GenericVariant.from_json('[1,2,3]')
-        restored = GenericVariant.from_dict({'value': original.value(), 'metadata': original.metadata()})
+        restored = GenericVariant.from_arrow_struct({'value': original.value(), 'metadata': original.metadata()})
         self.assertEqual(restored.get_type(), Type.ARRAY)
         self.assertEqual(restored.to_python(), [1, 2, 3])
 
@@ -578,7 +578,7 @@ class TestToArrowArray(unittest.TestCase):
         arr = GenericVariant.to_arrow_array([gv1, gv2])
         self.assertIsInstance(arr, pa.StructArray)
         self.assertEqual(len(arr), 2)
-        restored = GenericVariant.from_dict(arr[0].as_py())
+        restored = GenericVariant.from_arrow_struct(arr[0].as_py())
         self.assertEqual(restored.variant_get('$.a', 'int'), 1)
 
     def test_with_nulls(self):
