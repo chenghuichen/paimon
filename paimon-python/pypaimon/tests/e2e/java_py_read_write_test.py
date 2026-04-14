@@ -746,14 +746,15 @@ class JavaPyReadWriteTest(unittest.TestCase):
         schema = Schema.from_pyarrow_schema(pa_schema, options={'bucket': '-1'})
 
         table_name = 'default.py_variant_test'
-        self.catalog.create_table(table_name, schema, True)
+        self.catalog.drop_table(table_name, True)
+        self.catalog.create_table(table_name, schema, False)
         table = self.catalog.get_table(table_name)
 
         variant_col = GenericVariant.to_arrow_array([
             GenericVariant.from_json('{"name":"test","value":42}'),
             GenericVariant.from_json('[10,20,30]'),
             GenericVariant.from_json('"hello"'),
-            GenericVariant.from_json('null'),
+            None,  # SQL NULL at the column level, not a VARIANT containing JSON null
         ])
         data = pa.table({
             'id': pa.array([1, 2, 3, 4], type=pa.int32()),

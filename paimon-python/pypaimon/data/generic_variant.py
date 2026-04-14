@@ -782,7 +782,7 @@ class GenericVariant:
         return _pa.StructArray.from_arrays(
             [_pa.array(values, type=_pa.binary()),
              _pa.array(metadatas, type=_pa.binary())],
-            fields=[variant_type.field(0), variant_type.field(1)],
+            fields=[variant_type[0], variant_type[1]],
             mask=_pa.array(mask, type=_pa.bool_()),
         )
 
