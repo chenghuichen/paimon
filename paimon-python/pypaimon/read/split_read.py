@@ -19,7 +19,7 @@
 import os
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from pypaimon.common.options.core_options import CoreOptions
 from pypaimon.common.predicate import Predicate
@@ -89,7 +89,8 @@ class SplitRead(ABC):
             predicate: Optional[Predicate],
             read_type: List[DataField],
             split: Split,
-            row_tracking_enabled: bool):
+            row_tracking_enabled: bool,
+            variant_sub_fields: Optional[Dict[str, List[str]]] = None):
         from pypaimon.table.file_store_table import FileStoreTable
 
         self.table: FileStoreTable = table
@@ -98,6 +99,7 @@ class SplitRead(ABC):
         self.split = split
         self.row_tracking_enabled = row_tracking_enabled
         self.value_arity = len(read_type)
+        self.variant_sub_fields = variant_sub_fields
 
         self.trimmed_primary_key = self.table.trimmed_primary_keys
         self.read_fields = read_type
@@ -178,7 +180,8 @@ class SplitRead(ABC):
             ordered_read_fields = [name_to_field[n] for n in read_file_fields if n in name_to_field]
             format_reader = FormatPyArrowReader(
                 self.table.file_io, file_format, file_path,
-                ordered_read_fields, read_arrow_predicate, batch_size=batch_size)
+                ordered_read_fields, read_arrow_predicate, batch_size=batch_size,
+                variant_sub_fields=self.variant_sub_fields)
         elif file_format in ('json', 'csv'):
             raise NotImplementedError(
                 f"Reading '{file_format}' format is not yet supported in Python SDK. "
@@ -509,13 +512,15 @@ class DataEvolutionSplitRead(SplitRead):
             predicate: Optional[Predicate],
             read_type: List[DataField],
             split: Split,
-            row_tracking_enabled: bool):
+            row_tracking_enabled: bool,
+            variant_sub_fields: Optional[Dict[str, List[str]]] = None):
         self.row_ranges = None
         actual_split = split
         if isinstance(split, IndexedSplit):
             self.row_ranges = split.row_ranges()
             actual_split = split.data_split()
-        super().__init__(table, predicate, read_type, actual_split, row_tracking_enabled)
+        super().__init__(table, predicate, read_type, actual_split, row_tracking_enabled,
+                         variant_sub_fields=variant_sub_fields)
 
     def _push_down_predicate(self) -> Optional[Predicate]:
         # Data evolution: files may have different schemas, so we don't push predicate

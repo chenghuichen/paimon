@@ -40,7 +40,8 @@ class TableRead:
         table,
         predicate: Optional[Predicate],
         read_type: List[DataField],
-        include_row_kind: bool = False
+        include_row_kind: bool = False,
+        variant_sub_fields: Optional[Dict[str, List[str]]] = None,
     ):
         from pypaimon.table.file_store_table import FileStoreTable
 
@@ -48,6 +49,7 @@ class TableRead:
         self.predicate = predicate
         self.read_type = read_type
         self.include_row_kind = include_row_kind
+        self.variant_sub_fields = variant_sub_fields
 
     def to_iterator(self, splits: List[Split]) -> Iterator:
         def _record_generator():
@@ -61,10 +63,50 @@ class TableRead:
 
         return _record_generator()
 
-    def to_arrow_batch_reader(self, splits: List[Split]) -> pyarrow.ipc.RecordBatchReader:
+    def _output_schema(self) -> pyarrow.Schema:
+        """Full output Arrow schema, including any variant sub-field columns."""
         schema = PyarrowFieldParser.from_paimon_schema(self.read_type)
         if self.include_row_kind:
             schema = self._add_row_kind_to_schema(schema)
+        if self.variant_sub_fields:
+            extra = self._variant_sub_field_arrow_fields()
+            if extra:
+                schema = pyarrow.schema(list(schema) + extra)
+        return schema
+
+    def _variant_sub_field_arrow_fields(self) -> List[pyarrow.Field]:
+        """Compute Arrow fields for the sub-field projection columns.
+
+        Each VARIANT column in ``variant_sub_fields`` becomes a single struct field
+        (same name as the original column) whose sub-fields correspond to the
+        requested paths — mirroring Java Paimon's VariantRowType semantics.
+        """
+        shredding_json = self.table.options.variant_shredding_schema()
+        if not shredding_json:
+            return []
+        from pypaimon.data.variant_shredding import (
+            parse_shredding_schema_option,
+            sub_field_output_type,
+        )
+        col_schemas = parse_shredding_schema_option(shredding_json)
+        extra: List[pyarrow.Field] = []
+        for col_name, paths in self.variant_sub_fields.items():
+            obj_fields = col_schemas.get(col_name)
+            if obj_fields is None:
+                continue
+            struct_sub_fields = []
+            for path_str in paths:
+                arrow_type = sub_field_output_type(obj_fields, path_str.split('.'))
+                if arrow_type is not None:
+                    path_parts = path_str.split('.')
+                    field_name = path_parts[-1] if len(path_parts) == 1 else path_str
+                    struct_sub_fields.append(pyarrow.field(field_name, arrow_type, nullable=True))
+            if struct_sub_fields:
+                extra.append(pyarrow.field(col_name, pyarrow.struct(struct_sub_fields), nullable=True))
+        return extra
+
+    def to_arrow_batch_reader(self, splits: List[Split]) -> pyarrow.ipc.RecordBatchReader:
+        schema = self._output_schema()
         batch_iterator = self._arrow_batch_generator(splits, schema)
         return pyarrow.ipc.RecordBatchReader.from_batches(schema, batch_iterator)
 
@@ -93,10 +135,7 @@ class TableRead:
 
     def to_arrow(self, splits: List[Split]) -> Optional[pyarrow.Table]:
         batch_reader = self.to_arrow_batch_reader(splits)
-
-        schema = PyarrowFieldParser.from_paimon_schema(self.read_type)
-        if self.include_row_kind:
-            schema = self._add_row_kind_to_schema(schema)
+        schema = self._output_schema()
 
         table_list = []
         for batch in iter(batch_reader.read_next_batch, None):
@@ -264,7 +303,8 @@ class TableRead:
                 predicate=self.predicate,
                 read_type=self.read_type,
                 split=split,
-                row_tracking_enabled=False
+                row_tracking_enabled=False,
+                variant_sub_fields=self.variant_sub_fields,
             )
         elif self.table.options.data_evolution_enabled():
             return DataEvolutionSplitRead(
@@ -272,7 +312,8 @@ class TableRead:
                 predicate=self.predicate,
                 read_type=self.read_type,
                 split=split,
-                row_tracking_enabled=True
+                row_tracking_enabled=True,
+                variant_sub_fields=self.variant_sub_fields,
             )
         else:
             return RawFileSplitRead(
@@ -280,7 +321,8 @@ class TableRead:
                 predicate=self.predicate,
                 read_type=self.read_type,
                 split=split,
-                row_tracking_enabled=self.table.options.row_tracking_enabled()
+                row_tracking_enabled=self.table.options.row_tracking_enabled(),
+                variant_sub_fields=self.variant_sub_fields,
             )
 
     @staticmethod
